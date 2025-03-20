@@ -9,6 +9,7 @@ parser.add_argument('--device',default=0,type=int,help='gpu id to run huggingfac
 parser.add_argument('--hf_token',default='',type=str,help='huggingface token, needed to access restricted models such as llama')
 parser.add_argument('--hf_cache_dir',default='./cache/huggingface/models',help='cache dir for huggingface models')
 parser.add_argument('--rag_model',default="meta-llama/Meta-Llama-3-8B-Instruct",help="huggingface model name used for RAG; it needs to be compatible with huggingface's text-generation pipeline")
+parser.add_argument('--explode_answers',default='',type=str,help='question names to which the answers need to be exploded; for example, "1,2" to combine and exploder answers from q1 and q2, or "1;2" to explode answers in separate output files for q1 and q2')
 
 args = parser.parse_args()
 path_text = args.path_text
@@ -45,8 +46,9 @@ print('transformers version:',transformers.__version__)
 print('pandas version:',pd.__version__)
 print('numpy version:',np.__version__)
 
-def main():
+def main(args):
     os.makedirs(dir_output,exist_ok=True)
+    qs_explode = args.explode_answers
     
     #-------- Step 1: run extractive QA model on text --------
     print('* Running extractive QA model on text...')
@@ -300,6 +302,7 @@ def main():
                 
                 df_q = msh_to_df(d_res_q_pred)
                 df_q.to_csv(os.path.join(dir_output,f'q{qname}_output_msh.csv'),index=False)
+                print('Saved output:',os.path.join(dir_output,f'q{qname}_output_msh.csv'))
                 continue
         else:
             d_res_q, model_names, ids_paper = load_pred(f'q{qname}',dir_pk=dir_output)
@@ -317,6 +320,22 @@ def main():
         
 
     df_res.to_csv(os.path.join(dir_output,f"q{''.join(l_qname)}_output.csv"),index=False)
+    print('Saved output:',os.path.join(dir_output,f"q{''.join(l_qname)}_output.csv"))
+
+    # prepare an exploded version
+    if len(qs_explode) > 1:
+        print('Creating exploded answers (one answer string per row) with setting',qs_explode)
+        qs_explode = qs_explode.split(';')
+        for l_qs_explode in qs_explode:
+            l_qs_explode = l_qs_explode.split(',')
+            df_cat = pd.concat([df_res[['id',f'q{qname}_combined_answers']].rename(columns={f'q{qname}_combined_answers':'answer'}).explode('answer') for qname in l_qs_explode]).sort_values('answer')
+            df_cat['answer'] = df_cat['answer'].str.strip()
+            df_cat = df_cat.drop_duplicates().reset_index(drop=True)
+            df_cat.to_csv(os.path.join(dir_output,f"q{''.join(l_qs_explode)}_output_exploded.csv"),index=False)
+            print('Saved output:',os.path.join(dir_output,f"q{''.join(l_qs_explode)}_output_exploded.csv"))
+
+            df_cat.groupby('answer').count().reset_index().rename(columns={'id':'num_unique_ids'}).sort_values('num_unique_ids',ascending=False).to_csv(os.path.join(dir_output,f"q{''.join(l_qs_explode)}_output_exploded_unique.csv"),index=False)
+            print('Saved output:',os.path.join(dir_output,f"q{''.join(l_qs_explode)}_output_exploded_unique.csv"))
             
     
 if __name__ == '__main__':
@@ -356,4 +375,4 @@ if __name__ == '__main__':
     d_qname2qid = {k:i for i,k in enumerate(d_qs.keys())}
     print()
 
-    main()
+    main(args)
