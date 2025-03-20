@@ -5,7 +5,7 @@ import copy
 from evaluate_squadv2 import compute_f1, normalize_answer
 
 from util_load_data import get_predictions
-from util_hf import pool, release_gpu_mem
+from util_hf import pool
 
 import torch
 from torch import Tensor
